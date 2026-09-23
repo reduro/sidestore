@@ -200,21 +200,24 @@ func getDeviceConnectionMode() async -> DeviceConnectionMode {
 }
 
 public func isMinimuxerReady() async -> Result<Bool, MinimuxerError> {
-    let isEnabled = CellularRefreshManager.shared.isEnabled
-    return await minimuxer.core.isReady(withNetworkCheck: !isEnabled)
+    // The cellular toggle is only a capability setting. It must not disable
+    // readiness checks while the phone is on Wi-Fi. Skip the Wi-Fi-specific
+    // network gate only when cellular refresh is actually active.
+    let isCellularMode = CellularRefreshManager.shared.isCellularMode
+    return await minimuxer.core.isReady(withNetworkCheck: !isCellularMode)
 }
 
 public func ensureMinimuxerReady() async throws {
-    if CellularRefreshManager.shared.isEnabled && UserDefaults.standard.enableEMPforWireguard {
+    if CellularRefreshManager.shared.isCellularMode && UserDefaults.standard.enableEMPforWireguard {
         throw OperationError.invalidVPN(
             reason: "WireGuard VPN is not supported with Cellular Refresh because iOS pauses the WireGuard tunnel when cellular data is toggled off."
         )
     }
-    if !CellularRefreshManager.shared.isEnabled {
-        try await withRemotePairingRetry {
-            if case .failure(let error) = await isMinimuxerReady() {
-                throw error.asOperationError
-            }
+    try await withRemotePairingRetry {
+        if case .failure(let error) = await minimuxer.core.isReady(
+            withNetworkCheck: !CellularRefreshManager.shared.isCellularMode
+        ) {
+            throw error.asOperationError
         }
     }
 }
